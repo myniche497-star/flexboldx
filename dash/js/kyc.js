@@ -48,13 +48,38 @@
             { inputId: "selfieFile", previewId: "selfiePreview", infoId: "selfieInfo" }
         ];
 
-        // Helper: Convert File to Base64
-        const fileToBase64 = (file) => new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = (error) => reject(error);
-        });
+        // Helper: Compress and resize image file to prevent 413 Payload Too Large errors
+        const compressImage = (file, maxWidth = 1000, quality = 0.7) => {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.src = event.target.result;
+                    img.onload = () => {
+                        const canvas = document.createElement("canvas");
+                        let width = img.width;
+                        let height = img.height;
+
+                        if (width > maxWidth) {
+                            height = Math.round((height * maxWidth) / width);
+                            width = maxWidth;
+                        }
+
+                        canvas.width = width;
+                        canvas.height = height;
+
+                        const ctx = canvas.getContext("2d");
+                        ctx.drawImage(img, 0, 0, width, height);
+
+                        // Output compressed base64 JPEG string
+                        resolve(canvas.toDataURL("image/jpeg", quality));
+                    };
+                    img.onerror = (error) => reject(error);
+                };
+                reader.onerror = (error) => reject(error);
+            });
+        };
 
         // Render corresponding UI view state
         function renderStateView(kycStatus) {
@@ -246,7 +271,7 @@
 
             Swal.fire({
                 title: "Submitting Identity Verification...",
-                text: "Uploading your data and documents securely.",
+                text: "Compressing documents and uploading securely...",
                 allowOutsideClick: false,
                 didOpen: () => {
                     Swal.showLoading();
@@ -258,10 +283,11 @@
                 const backFile = document.getElementById("idBackFile").files[0];
                 const selfieFile = document.getElementById("selfieFile").files[0];
 
+                // Compress images prior to submission to safely stay below Vercel's payload limit
                 const [img1Base64, img2Base64, img3Base64] = await Promise.all([
-                    fileToBase64(frontFile),
-                    fileToBase64(backFile),
-                    fileToBase64(selfieFile)
+                    compressImage(frontFile),
+                    compressImage(backFile),
+                    compressImage(selfieFile)
                 ]);
 
                 const payload = {
